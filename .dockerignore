@@ -1,0 +1,8 @@
+.env
+.git
+.gitignore
+__pycache__/
+*.pyc
+aternos_browser_session/
+aternos_state.json
+session.zip

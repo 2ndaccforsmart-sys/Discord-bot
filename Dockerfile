@@ -1,0 +1,20 @@
+# Use the official Playwright jammy container layout (comes with system dependencies)
+FROM mcr.microsoft.com/playwright/python:v1.44.0-jammy
+
+# Establish workspace layer
+WORKDIR /app
+
+# Copy dependency definition
+COPY requirements.txt /app/
+
+# Install python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Download and install the specific Chromium browser binary matching the installed Playwright version
+RUN playwright install chromium
+
+# Copy the rest of the application files
+COPY . /app
+
+# Run the final launch command target sequence
+CMD ["python", "bot.py"]
