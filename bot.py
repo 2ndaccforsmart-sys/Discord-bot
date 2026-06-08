@@ -66,13 +66,18 @@ async def spin_up_keepalive_server():
 # -------------------------------------------------------------
 # AUTOMATED MASTER ON_READY & DM INITIALIZATION
 # -------------------------------------------------------------
+async def setup_hook():
+    asyncio.create_task(spin_up_keepalive_server())
+
+bot.setup_hook = setup_hook
+
 @bot.event
 async def on_ready():
-    asyncio.create_task(spin_up_keepalive_server())
     print("--------------------------------------------------")
     print(f"🚀 CLOUD RUNTIME ONLINE: Case-Insensitive Bot Stack Live!")
     print(f"🤖 Connected as: {bot.user.name}")
     print("--------------------------------------------------")
+
 
 # -------------------------------------------------------------
 # CLOUDFLARE TURNSTILE & STATUS POLLING UTILITIES
@@ -314,9 +319,10 @@ async def run_aternos_action(ctx, action_type, status_msg):
 
     async with async_playwright() as p:
         # Launch Chromium persistent context (stealthy, saves local profiles)
+        headless_mode = os.getenv("ATERNOS_HEADLESS", "true").lower() != "false"
         context = await p.chromium.launch_persistent_context(
             user_data_dir,
-            headless=True,
+            headless=headless_mode,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
@@ -352,7 +358,7 @@ async def run_aternos_action(ctx, action_type, status_msg):
             await page.goto("https://aternos.org/servers/", wait_until="domcontentloaded", timeout=30000)
             
             # Wait for list cards or login container to load
-            await page.locator('input[type="password"], .server, .server-body, .server-card').first.wait_for(state="attached", timeout=15000)
+            await page.locator('input[type="password"], .server, .server-body, .server-card').first.wait_for(state="attached", timeout=30000)
 
             # Check if redirected to login page
             if "login" in page.url or await page.locator('input[type="password"]').count() > 0:
@@ -380,7 +386,7 @@ async def run_aternos_action(ctx, action_type, status_msg):
                 await login_btn.click()
                 
                 # Wait for redirect back to servers page
-                await page.wait_for_url("**/servers/", timeout=15000)
+                await page.wait_for_url("**/servers/", timeout=30000)
 
                 # Capture post-login cookie
                 session_token = await save_session_cookie_if_changed(context, session_token)
@@ -414,13 +420,13 @@ async def run_aternos_action(ctx, action_type, status_msg):
                     print("⚠️ Could not match server card. Trying direct navigation to /server/.")
                     await page.goto("https://aternos.org/server/", wait_until="domcontentloaded")
                 else:
-                    await page.wait_for_url("**/server/", timeout=15000)
+                    await page.wait_for_url("**/server/", timeout=30000)
 
             # Ensure we are on the singular server page (not the multiple servers list page)
             if "/servers" in page.url or "/server" not in page.url:
                 print("⚠️ Not on the singular server page. Attempting direct navigation to /server/...")
                 await page.goto("https://aternos.org/server/", wait_until="domcontentloaded")
-                await page.wait_for_url("**/server/", timeout=15000)
+                await page.wait_for_url("**/server/", timeout=30000)
 
             # Double-check page path to ensure we aren't stuck on list page
             if "/servers" in page.url:
