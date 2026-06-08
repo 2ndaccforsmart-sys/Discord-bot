@@ -24,7 +24,7 @@ bot = commands.Bot(command_prefix="!", intents=intents, case_insensitive=True)
 # -------------------------------------------------------------
 # CONFIGURATION MATRIX (SET VIA ENVIRONMENT VARIABLES OR FALLBACKS)
 # -------------------------------------------------------------
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "MTUwNjU0MDc2Mjc5MDIzMjE1NA.Gu0aD6.QZu63KmkPs8OS3NALC8V9KKNebN5qoc0_8WJ_U")
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 ATERNOS_TARGET_SERVER = os.getenv("ATERNOS_TARGET_SERVER", "IISJschool")
 MY_DISCORD_USERNAME = os.getenv("MY_DISCORD_USERNAME", "thanki_daksh")
 
@@ -696,6 +696,7 @@ async def setup_command(ctx):
     await ctx.send("🛠️ **Setup Protocol Verified:** Configurations verified and locked using ownership check!")
 
 if __name__ == "__main__":
-    if not DISCORD_TOKEN or DISCORD_TOKEN.startswith("MTUw"):
-        print("⚠️ Warning: Discord token is using a hardcoded placeholder/potential revoked token. Make sure your .env is loaded.")
+    if not DISCORD_TOKEN:
+        print("❌ Error: DISCORD_TOKEN environment variable is not set!")
+        exit(1)
     bot.run(DISCORD_TOKEN)
