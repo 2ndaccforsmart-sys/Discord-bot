@@ -5,6 +5,7 @@ import re
 import traceback
 import json
 import struct
+import random
 from discord.ext import commands
 from aiohttp import ClientSession, web
 from dotenv import load_dotenv
@@ -275,6 +276,49 @@ async def check_server_offline_ping():
         
     return False, "unknown"
 
+async def human_type(locator, text):
+    """Types text into a locator with human-like speed, random delays, and occasional corrected typos."""
+    await locator.click()
+    await asyncio.sleep(random.uniform(0.3, 0.7))
+    
+    for char in text:
+        # 8% chance of making a typo on alphanumeric characters
+        if char.isalnum() and random.random() < 0.08:
+            wrong_char = random.choice("abcdefghijklmnopqrstuvwxyz")
+            if wrong_char != char.lower():
+                await locator.press_sequentially(wrong_char)
+                await asyncio.sleep(random.uniform(0.15, 0.4))
+                await locator.press("Backspace")
+                await asyncio.sleep(random.uniform(0.1, 0.3))
+                
+        await locator.press_sequentially(char)
+        await asyncio.sleep(random.uniform(0.08, 0.25))
+        
+    await asyncio.sleep(random.uniform(0.4, 0.8))
+
+async def wait_for_page_or_turnstile(page, status_msg, timeout_ms=30000):
+    """Waits for either the main page elements or a Cloudflare Turnstile challenge, handling it if found."""
+    start_time = asyncio.get_event_loop().time()
+    while (asyncio.get_event_loop().time() - start_time) * 1000 < timeout_ms:
+        # Check if target page selectors are present
+        target_selectors = page.locator('input[type="password"], .server, .server-body, .server-card')
+        if await target_selectors.count() > 0:
+            return "ready"
+            
+        # Check if Turnstile iframe is present
+        for frame in page.frames:
+            if "challenges.cloudflare.com" in frame.url:
+                print("🔍 Cloudflare Turnstile detected during wait. Handling...")
+                await handle_turnstile(page, status_msg)
+                # Wait a bit for transition
+                await page.wait_for_timeout(3000)
+                break
+                
+        await page.wait_for_timeout(1000)
+    
+    # If we timed out, raise an exception
+    raise Exception(f"Timeout waiting for server page or Cloudflare bypass after {timeout_ms/1000}s")
+
 # -------------------------------------------------------------
 # PLAYWRIGHT AUTOMATION ENGINE
 # -------------------------------------------------------------
@@ -357,8 +401,8 @@ async def run_aternos_action(ctx, action_type, status_msg):
             # Navigate to servers list (wait only for DOM to be parsed, not ads/trackers)
             await page.goto("https://aternos.org/servers/", wait_until="domcontentloaded", timeout=30000)
             
-            # Wait for list cards or login container to load
-            await page.locator('input[type="password"], .server, .server-body, .server-card').first.wait_for(state="attached", timeout=30000)
+            # Wait for list cards or login container to load, checking for and handling Turnstile concurrently
+            await wait_for_page_or_turnstile(page, status_msg, timeout_ms=30000)
 
             # Check if redirected to login page
             if "login" in page.url or await page.locator('input[type="password"]').count() > 0:
@@ -375,11 +419,11 @@ async def run_aternos_action(ctx, action_type, status_msg):
 
                 # Fill username
                 user_input = page.locator('input[placeholder*="Username" i], input[name="user"], input[id="user"]').first
-                await user_input.fill(username)
+                await human_type(user_input, username)
                 
                 # Fill password
                 pass_input = page.locator('input[type="password"], input[name="password"]').first
-                await pass_input.fill(password)
+                await human_type(pass_input, password)
                 
                 # Click login button
                 login_btn = page.locator('button:has-text("Login"), button:has-text("Log in"), button.btn-primary, input[type="submit"]').first
