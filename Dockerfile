@@ -17,4 +17,4 @@ RUN playwright install chromium
 COPY . /app
 
 # Run the final launch command target sequence
-CMD ["python", "bot.py"]
+CMD ["xvfb-run", "--server-args=-screen 0 1280x720x24", "python", "bot.py"]
