@@ -362,11 +362,15 @@ async def run_aternos_action(ctx, action_type, status_msg):
         await status_msg.edit(content="🛑 **Shutting down...**")
 
     async with async_playwright() as p:
-        # Launch Chromium persistent context (stealthy, saves local profiles)
+        # Launch Chromium persistent context (stealthy, matching Linux container signature)
         headless_mode = os.getenv("ATERNOS_HEADLESS", "true").lower() != "false"
         context = await p.chromium.launch_persistent_context(
             user_data_dir,
             headless=headless_mode,
+            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 720},
+            locale="en-US",
+            timezone_id="UTC",
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
@@ -389,10 +393,6 @@ async def run_aternos_action(ctx, action_type, status_msg):
             print("🔑 Injected ATERNOS_SESSION cookie into browser context.")
 
         page = await context.new_page()
-        # Set a realistic user agent
-        await page.set_extra_http_headers({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        })
 
         if action_type == "start":
             await status_msg.edit(content=f"⚙️ **Bot Engine: Connecting to Aternos portal...**\n{make_progress_bar(30)}")
@@ -402,7 +402,7 @@ async def run_aternos_action(ctx, action_type, status_msg):
             await page.goto("https://aternos.org/servers/", wait_until="domcontentloaded", timeout=30000)
             
             # Wait for list cards or login container to load, checking for and handling Turnstile concurrently
-            await wait_for_page_or_turnstile(page, status_msg, timeout_ms=30000)
+            await wait_for_page_or_turnstile(page, status_msg, timeout_ms=60000)
 
             # Check if redirected to login page
             if "login" in page.url or await page.locator('input[type="password"]').count() > 0:
