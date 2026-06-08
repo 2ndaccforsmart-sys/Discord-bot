@@ -91,7 +91,7 @@ async def handle_turnstile(page, status_msg):
     global turnstile_attempts
     await page.wait_for_timeout(2000)
     for frame in page.frames:
-        if "challenges.cloudflare.com" in frame.url:
+        if "challenges.cloudflare.com" in frame.url or "challenge-platform" in frame.url or "turnstile" in frame.url:
             if turnstile_attempts >= 2:
                 print("⚠️ Maximum Turnstile click attempts reached. Skipping further clicks to prevent loop.")
                 return
@@ -320,7 +320,7 @@ async def wait_for_page_or_turnstile(page, status_msg, timeout_ms=30000):
             
         # Check if Turnstile iframe is present
         for frame in page.frames:
-            if "challenges.cloudflare.com" in frame.url:
+            if "challenges.cloudflare.com" in frame.url or "challenge-platform" in frame.url or "turnstile" in frame.url:
                 print("🔍 Cloudflare Turnstile detected during wait. Handling...")
                 await handle_turnstile(page, status_msg)
                 # Wait a bit for transition
