@@ -99,8 +99,8 @@ async def handle_turnstile(page, status_msg):
             print("🔍 Found Cloudflare Turnstile iframe. Attempting to click...")
             await status_msg.edit(content=f"⚙️ **Security Check:** Bypassing Cloudflare Turnstile challenge...\n{make_progress_bar(50)}")
             
-            # Common selectors inside Turnstile iframe
-            checkbox = frame.locator('input[type="checkbox"], #challenge-stage, .cb-i, #cf-stage')
+            # Target the wrapper container or body directly for a guaranteed click target
+            checkbox = frame.locator('#challenge-stage, .cb-i, body')
             if await checkbox.count() > 0:
                 try:
                     turnstile_attempts += 1
