@@ -83,11 +83,19 @@ async def on_ready():
 # -------------------------------------------------------------
 # CLOUDFLARE TURNSTILE & STATUS POLLING UTILITIES
 # -------------------------------------------------------------
+# Keep track of Turnstile click attempts to avoid infinite loops
+turnstile_attempts = 0
+
 async def handle_turnstile(page, status_msg):
     """Detects and clicks Cloudflare Turnstile checkbox if present inside an iframe."""
+    global turnstile_attempts
     await page.wait_for_timeout(2000)
     for frame in page.frames:
         if "challenges.cloudflare.com" in frame.url:
+            if turnstile_attempts >= 2:
+                print("⚠️ Maximum Turnstile click attempts reached. Skipping further clicks to prevent loop.")
+                return
+                
             print("🔍 Found Cloudflare Turnstile iframe. Attempting to click...")
             await status_msg.edit(content=f"⚙️ **Security Check:** Bypassing Cloudflare Turnstile challenge...\n{make_progress_bar(50)}")
             
@@ -95,14 +103,17 @@ async def handle_turnstile(page, status_msg):
             checkbox = frame.locator('input[type="checkbox"], #challenge-stage, .cb-i, #cf-stage')
             if await checkbox.count() > 0:
                 try:
-                    # Human-like interaction
-                    await checkbox.first.hover()
+                    turnstile_attempts += 1
+                    print(f"👉 Turnstile click attempt #{turnstile_attempts}...")
+                    # Human-like interaction with safety timeouts
+                    await checkbox.first.hover(timeout=5000)
                     await asyncio.sleep(0.5)
-                    await checkbox.first.click()
+                    await checkbox.first.click(force=True, timeout=5000)
                     print("✅ Clicked Turnstile checkbox successfully!")
-                    await page.wait_for_timeout(2000)
+                    await page.wait_for_timeout(3000)
                 except Exception as e:
                     print(f"⚠️ Failed to click Turnstile checkbox: {e}")
+                    traceback.print_exc()
 
 async def monitor_status(ctx, page, status_msg, action_type):
     """Polls the page status to provide real-time status updates in Discord."""
@@ -298,6 +309,8 @@ async def human_type(locator, text):
 
 async def wait_for_page_or_turnstile(page, status_msg, timeout_ms=30000):
     """Waits for either the main page elements or a Cloudflare Turnstile challenge, handling it if found."""
+    global turnstile_attempts
+    turnstile_attempts = 0
     start_time = asyncio.get_event_loop().time()
     while (asyncio.get_event_loop().time() - start_time) * 1000 < timeout_ms:
         # Check if target page selectors are present
@@ -364,10 +377,14 @@ async def run_aternos_action(ctx, action_type, status_msg):
     async with async_playwright() as p:
         # Launch Chromium persistent context (stealthy, matching Linux container signature)
         headless_mode = os.getenv("ATERNOS_HEADLESS", "true").lower() != "false"
+        if os.getenv("DISPLAY") is not None:
+            print("🖥️ X Virtual Frame Buffer (Xvfb) detected! Running in headful mode for Turnstile bypass.")
+            headless_mode = False
+
         context = await p.chromium.launch_persistent_context(
             user_data_dir,
             headless=headless_mode,
-            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 720},
             locale="en-US",
             timezone_id="UTC",
