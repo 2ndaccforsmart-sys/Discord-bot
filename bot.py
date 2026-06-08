@@ -499,6 +499,15 @@ async def run_aternos_action(ctx, action_type, status_msg):
 
         except Exception as e:
             traceback.print_exc()
+            try:
+                # Capture screenshot on failure to diagnose Cloudflare block or selector issues
+                screenshot_path = "error_screenshot.png"
+                await page.screenshot(path=screenshot_path, full_page=True)
+                file = discord.File(screenshot_path, filename="error.png")
+                await ctx.send("📷 **Automation Error Screenshot:**", file=file)
+            except Exception as se:
+                print(f"Failed to capture error screenshot: {se}")
+                
             if action_type == "start":
                 await status_msg.edit(content=f"❌ **AUTOMATION STALLED:** Connection pipeline error.\nError Details: `{str(e)}`")
             else:
