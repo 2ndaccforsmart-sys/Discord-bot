@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+aternos_browser_session/
+aternos_state.json
+error_screenshot.png
+error.png
+logs/
+user_data/
