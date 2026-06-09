@@ -4,6 +4,9 @@ FROM mcr.microsoft.com/playwright/python:v1.44.0-jammy
 # Establish workspace layer
 WORKDIR /app
 
+# Disable python output buffering to see logs in real-time
+ENV PYTHONUNBUFFERED=1
+
 # Copy dependency definition
 COPY requirements.txt /app/
 
