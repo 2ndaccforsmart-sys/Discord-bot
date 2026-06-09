@@ -10,6 +10,7 @@ from discord.ext import commands
 from aiohttp import ClientSession, web
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
+from playwright_stealth import Stealth
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -99,16 +100,25 @@ async def handle_turnstile(page, status_msg):
             print("🔍 Found Cloudflare Turnstile iframe. Attempting to click...")
             await status_msg.edit(content=f"⚙️ **Security Check:** Bypassing Cloudflare Turnstile challenge...\n{make_progress_bar(50)}")
             
-            # Target the wrapper container or body directly for a guaranteed click target
-            checkbox = frame.locator('#challenge-stage, .cb-i, body')
+            # Wait for frame DOM content to be fully loaded
+            try:
+                await frame.wait_for_load_state("domcontentloaded", timeout=10000)
+            except Exception as e:
+                print(f"⚠️ Timeout waiting for Turnstile frame DOM: {e}")
+            
+            # Target the checkbox input or checkbox label specifically inside the iframe
+            checkbox = frame.locator('input[type="checkbox"], .ctp-checkbox-label, #checkbox, span.mark, .cb-i, #challenge-stage')
             if await checkbox.count() > 0:
                 try:
                     turnstile_attempts += 1
                     print(f"👉 Turnstile click attempt #{turnstile_attempts}...")
+                    target_element = checkbox.first
+                    await target_element.wait_for(state="visible", timeout=5000)
+                    
                     # Human-like interaction with safety timeouts
-                    await checkbox.first.hover(timeout=5000)
-                    await asyncio.sleep(0.5)
-                    await checkbox.first.click(force=True, timeout=5000)
+                    await target_element.hover(timeout=5000)
+                    await asyncio.sleep(random.uniform(0.3, 0.7))
+                    await target_element.click(force=True, timeout=5000)
                     print("✅ Clicked Turnstile checkbox successfully!")
                     await page.wait_for_timeout(3000)
                 except Exception as e:
@@ -332,6 +342,32 @@ async def wait_for_page_or_turnstile(page, status_msg, timeout_ms=30000):
     # If we timed out, raise an exception
     raise Exception(f"Timeout waiting for server page or Cloudflare bypass after {timeout_ms/1000}s")
 
+async def get_proxy_details(proxy_url):
+    """Detects the locale and timezone of the proxy server to align the browser fingerprint."""
+    if not proxy_url:
+        return "en-US", "UTC"
+    try:
+        print(f"🌍 Performing geo-lookup through proxy: {proxy_url}")
+        async with ClientSession() as session:
+            async with session.get("http://ip-api.com/json", proxy=proxy_url, timeout=5) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    timezone = data.get("timezone", "UTC")
+                    country_code = data.get("countryCode", "US").lower()
+                    
+                    # Map country codes to common locale string signatures
+                    locale_map = {
+                        "us": "en-US", "gb": "en-GB", "pl": "pl-PL", 
+                        "de": "de-DE", "es": "es-ES", "jp": "ja-JP",
+                        "fr": "fr-FR", "ca": "en-CA", "au": "en-AU"
+                    }
+                    locale = locale_map.get(country_code, "en-US")
+                    print(f"✅ Proxy Details: Country={data.get('country')}, Timezone={timezone}, Locale={locale}")
+                    return locale, timezone
+    except Exception as e:
+        print(f"⚠️ Proxy Geo-lookup failed: {e}. Defaulting to en-US/UTC.")
+    return "en-US", "UTC"
+
 # -------------------------------------------------------------
 # PLAYWRIGHT AUTOMATION ENGINE
 # -------------------------------------------------------------
@@ -381,13 +417,25 @@ async def run_aternos_action(ctx, action_type, status_msg):
             print("🖥️ X Virtual Frame Buffer (Xvfb) detected! Running in headful mode for Turnstile bypass.")
             headless_mode = False
 
+        # Read optional proxy server settings and dynamically align fingerprint
+        proxy_settings = None
+        proxy_url = os.getenv("PROXY_SERVER")
+        if proxy_url:
+            print("🌐 Routing browser traffic through proxy server...")
+            proxy_settings = {"server": proxy_url}
+
+        locale_str, timezone_str = await get_proxy_details(proxy_url)
+
+        user_agent_str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+
         context = await p.chromium.launch_persistent_context(
             user_data_dir,
             headless=headless_mode,
-            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            user_agent=user_agent_str,
             viewport={"width": 1280, "height": 720},
-            locale="en-US",
-            timezone_id="UTC",
+            locale=locale_str,
+            timezone_id=timezone_str,
+            proxy=proxy_settings,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
@@ -395,6 +443,17 @@ async def run_aternos_action(ctx, action_type, status_msg):
                 "--disable-dev-shm-usage",
             ]
         )
+        
+        # Apply playwright-stealth to context (applies to all pages and subframes)
+        lang_base = locale_str.split('-')[0]
+        stealth_evasion = Stealth(
+            navigator_user_agent_override=user_agent_str,
+            navigator_platform_override="Linux x86_64",
+            navigator_languages_override=(locale_str, lang_base),
+            chrome_runtime=True
+        )
+        await stealth_evasion.apply_stealth_async(context)
+        print("🛡️ Playwright Stealth Evasion activated successfully for all frames!")
         
         # Inject cookie if ATERNOS_SESSION is defined
         if session_token:
