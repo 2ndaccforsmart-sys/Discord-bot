@@ -420,6 +420,10 @@ async def run_aternos_action(ctx, action_type, status_msg):
         # Read optional proxy server settings and dynamically align fingerprint
         proxy_settings = None
         proxy_url = os.getenv("PROXY_SERVER")
+        if not proxy_url:
+            proxy_url = "http://mhlyphkj:seqgahpd0irq@38.154.203.95:5863"
+            print("🌐 Using fallback hardcoded proxy server...")
+
         if proxy_url:
             print("🌐 Routing browser traffic through proxy server...")
             proxy_settings = {"server": proxy_url}
