@@ -66,12 +66,8 @@ async def spin_up_keepalive_server():
     print(f"🌐 Cloud Health Network Web Service securely bound to Port {port}.")
 
 # -------------------------------------------------------------
-# AUTOMATED MASTER ON_READY & DM INITIALIZATION
+# AUTOMATED MASTER ON_READY
 # -------------------------------------------------------------
-async def setup_hook():
-    asyncio.create_task(spin_up_keepalive_server())
-
-bot.setup_hook = setup_hook
 
 @bot.event
 async def on_ready():
@@ -758,8 +754,14 @@ async def setup_command(ctx):
         return
     await ctx.send("🛠️ **Setup Protocol Verified:** Configurations verified and locked using ownership check!")
 
+async def main():
+    # Bind to Port instantly on boot to satisfy Render's port scan checks
+    await spin_up_keepalive_server()
+    async with bot:
+        await bot.start(DISCORD_TOKEN)
+
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
         print("❌ Error: DISCORD_TOKEN environment variable is not set!")
         exit(1)
-    bot.run(DISCORD_TOKEN)
+    asyncio.run(main())
