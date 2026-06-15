@@ -1,5 +1,4 @@
 discord.py
-playwright
-playwright-stealth
+scrapling
 aiohttp
 python-dotenv

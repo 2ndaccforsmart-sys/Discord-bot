@@ -1,23 +1,14 @@
-# Use the official Playwright jammy container layout (comes with system dependencies)
-FROM mcr.microsoft.com/playwright/python:v1.44.0-jammy
+FROM python:3.11-slim
 
-# Establish workspace layer
 WORKDIR /app
 
-# Disable python output buffering to see logs in real-time
-ENV PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency definition
-COPY requirements.txt /app/
-
-# Install python dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Download and install the specific Chromium browser binary matching the installed Playwright version
-RUN playwright install chromium
+COPY . .
 
-# Copy the rest of the application files
-COPY . /app
-
-# Run the final launch command target sequence
-CMD ["xvfb-run", "--server-args=-screen 0 1280x720x24", "python", "bot.py"]
+EXPOSE 7860
+CMD ["python", "bot.py"]
