@@ -11,11 +11,11 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+load_dotenv(override=True)
+
 from utils.config import DISCORD_TOKEN, MY_DISCORD_USER_ID, GEMINI_API_KEY
 from utils.proxy import get_configured_proxy, sanitize_proxy_url
 from cogs.ai_chat import init_gemini, ask_gemini, should_bot_respond
-
-load_dotenv(override=True)
 
 logging.basicConfig(
     level=logging.INFO,
