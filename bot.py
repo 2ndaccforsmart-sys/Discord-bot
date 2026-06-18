@@ -32,9 +32,12 @@ if proxy_url:
 def build_bot() -> commands.Bot:
     log.info("Connecting to Discord gateway directly (no proxy)...")
     connector = aiohttp.TCPConnector(family=socket.AF_INET)
+    intents = discord.Intents.default()
+    intents.message_content = True
+    intents.members = True
     bot = commands.Bot(
         command_prefix="!",
-        intents=discord.Intents.default(),
+        intents=intents,
         case_insensitive=True,
         connector=connector,
     )
