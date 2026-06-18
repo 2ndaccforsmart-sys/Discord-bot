@@ -1,5 +1,4 @@
 import os
-import re
 import sys
 import socket
 import logging
@@ -13,9 +12,9 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-from utils.config import DISCORD_TOKEN, MY_DISCORD_USER_ID, GEMINI_API_KEY
+from utils.config import DISCORD_TOKEN, MY_DISCORD_USER_ID
 from utils.proxy import get_configured_proxy, sanitize_proxy_url
-from cogs.ai_chat import init_gemini, ask_gemini, should_bot_respond
+from cogs.ai_chat import init_gemini
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,25 +49,6 @@ def build_bot() -> commands.Bot:
     async def on_message(message: discord.Message):
         if message.author.bot:
             return
-        if not message.content:
-            await bot.process_commands(message)
-            return
-        if GEMINI_API_KEY:
-            should_respond = False
-            clean_content = message.content
-            if bot.user in message.mentions:
-                clean_content = re.sub(r'<@!?\d+>', '', message.content).strip()
-                should_respond = True
-            elif should_bot_respond(message, bot.user):
-                should_respond = True
-            if should_respond:
-                if clean_content:
-                    async with message.channel.typing():
-                        response = await ask_gemini(message.channel.id, clean_content, message.author.display_name)
-                    if response:
-                        await message.reply(response, mention_author=False)
-                else:
-                    await message.reply("Yeah, what's on your mind?", mention_author=False)
         await bot.process_commands(message)
 
     return bot
