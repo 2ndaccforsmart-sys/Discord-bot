@@ -1,8 +1,13 @@
 .env
+.env.*
 .git
 .gitignore
 __pycache__/
 *.pyc
-aternos_browser_session/
+*.pyo
 aternos_state.json
-session.zip
+venv/
+tests/
+*.log
+error_screenshot.png
+error.png

@@ -1,11 +1,12 @@
 .env
+.env.local
+.env.*.local
 __pycache__/
 *.pyc
-aternos_browser_session/
+*.pyo
 aternos_state.json
+aternos_state.json.bak
 error_screenshot.png
 error.png
-logs/
-user_data/
-test_aternos_session/
-test_stealth_session/
+venv/
+*.log
