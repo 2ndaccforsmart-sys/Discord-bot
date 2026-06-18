@@ -29,10 +29,10 @@ def init_gemini() -> bool:
         import google.generativeai as genai
         genai.configure(api_key=GEMINI_API_KEY)
         generation_config = {
-            "temperature": 0.8,
-            "top_p": 0.95,
-            "top_k": 40,
-            "max_output_tokens": 1024,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "top_k": 30,
+            "max_output_tokens": 256,
         }
         safety_settings = [
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
