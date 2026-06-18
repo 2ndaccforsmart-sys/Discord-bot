@@ -102,11 +102,13 @@ def mark_bot_responded(channel_id: int):
 
 def _is_mentioning_bot(content: str, bot_user: discord.Member) -> bool:
     content_lower = content.lower()
-    bot_name = bot_user.display_name.lower().replace(" ", "")
-    if bot_name and bot_name in content_lower.replace(" ", ""):
+    content_no_separators = re.sub(r'[\s_\-]', '', content_lower)
+    bot_name = re.sub(r'[\s_\-]', '', bot_user.display_name.lower())
+    if bot_name and len(bot_name) >= 3 and bot_name in content_no_separators:
         return True
     for alias in BOT_NAME_ALIASES:
-        if alias in content_lower:
+        alias_clean = re.sub(r'[\s_\-]', '', alias)
+        if alias_clean and alias_clean in content_no_separators:
             return True
     return False
 
