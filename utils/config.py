@@ -32,6 +32,13 @@ KEEPALIVE_PORT = _safe_int("PORT", 7860)
 COOLDOWN_SECONDS = 10
 MINECRAFT_PROTOCOL_VERSION = 763
 
+ATERNOS_LOGIN_TIMEOUT = _safe_int("ATERNOS_LOGIN_TIMEOUT", 60000)
+ATERNOS_CF_MAX_WAIT = _safe_int("ATERNOS_CF_MAX_WAIT", 45)
+ATERNOS_MAX_RETRIES = _safe_int("ATERNOS_MAX_RETRIES", 5)
+
+PROXY_ROTATION = os.getenv("PROXY_ROTATION", "false").lower() == "true"
+PROXY_LIST = [p.strip() for p in os.getenv("PROXY_LIST", "").split(",") if p.strip()]
+
 DEFAULT_PERSONA = (
     "You are a laid-back but sharp bot living in a Minecraft gaming server. "
     "You talk like a chill friend who actually knows what's up — short messages, "

@@ -1,10 +1,18 @@
+import os
 import re
 import time
+import random
 import asyncio
+import traceback
 from scrapling.fetchers import FetcherSession, StealthyFetcher
 
 from utils.json_utils import safe_write_json, safe_read_json
 from utils.progress import make_progress_bar
+from utils.stealth import (
+    StealthSession, build_stealth_page_action, build_warmup_action,
+    human_delay, get_random_impersonate, save_cookies, clear_cookies,
+    COOKIE_PERSIST_PATH,
+)
 
 AJAX_TOKEN_PATTERNS = [
     r"ajaxToken\s*=\s*['\"]([^'\"]+)['\"]",
@@ -14,6 +22,7 @@ AJAX_TOKEN_PATTERNS = [
     r"const\s+ajaxToken\s*=\s*['\"]([^'\"]+)['\"]",
     r'data-token=["\']([^"\']+)["\']',
     r'"ajaxToken"\s*:\s*"([^"]+)"',
+    r"token\s*[:=]\s*['\"]([^'\"]{20,})['\"]",
 ]
 
 SEC_COOKIE_PATTERNS = [
@@ -21,6 +30,7 @@ SEC_COOKIE_PATTERNS = [
     "ATERNOS_XSRF",
     "ATERNOS CSRF",
     "XSRF-TOKEN",
+    "SEC_",
 ]
 
 LOGIN_PAGE_PATTERNS = ["login", "signin", "auth"]
@@ -49,12 +59,28 @@ LOGIN_SELECTORS_SUBMIT = [
     'button.btn-primary',
 ]
 
+CF_CHALLENGE_MARKERS = [
+    "checking if the site connection is secure",
+    "verify you are human",
+    "just a moment",
+    "performing security verification",
+    "enable javascript and cookies to continue",
+    "cloudflare",
+    "turnstile",
+    "cf-challenge",
+    "challenge-platform",
+]
+
+MAX_CF_WAIT_SECONDS = 45
+
 
 def extract_ajax_token(page_text: str) -> str | None:
     for pattern in AJAX_TOKEN_PATTERNS:
         match = re.search(pattern, page_text)
         if match:
-            return match.group(1)
+            token = match.group(1)
+            if len(token) >= 10:
+                return token
     return None
 
 
@@ -77,125 +103,267 @@ def is_login_page(url: str, text: str) -> bool:
     return False
 
 
+def is_cloudflare_challenge(url: str, text: str) -> bool:
+    text_lower = text.lower() if text else ""
+    url_lower = url.lower() if url else ""
+    for marker in CF_CHALLENGE_MARKERS:
+        if marker in text_lower or marker in url_lower:
+            return True
+    return False
+
+
+def _fill_login_form(page, username: str, password: str):
+    human_delay(800, 1500)
+
+    for sel in LOGIN_SELECTORS_USER:
+        try:
+            el = page.query_selector(sel)
+            if el:
+                el.click()
+                human_delay(200, 500)
+                page.fill(sel, "")
+                for char in username:
+                    page.type(sel, char, delay=random.randint(30, 80))
+                    human_delay(10, 30)
+                break
+        except Exception:
+            continue
+
+    human_delay(300, 700)
+
+    for sel in LOGIN_SELECTORS_PASS:
+        try:
+            el = page.query_selector(sel)
+            if el:
+                el.click()
+                human_delay(200, 500)
+                page.fill(sel, "")
+                for char in password:
+                    page.type(sel, char, delay=random.randint(30, 80))
+                    human_delay(10, 30)
+                break
+        except Exception:
+            continue
+
+    human_delay(500, 1200)
+
+    for sel in LOGIN_SELECTORS_SUBMIT:
+        try:
+            el = page.query_selector(sel)
+            if el:
+                el.click()
+                break
+        except Exception:
+            continue
+
+
 def aternos_login(username: str, password: str, proxy_url: str | None, state_file: str) -> tuple[dict, str]:
     if not username or not password:
         raise Exception("Missing ATERNOS_USER or ATERNOS_PASS environment variables.")
 
-    flag_sets = [
-        {"headless": True, "disable_resources": True, "block_ads": True, "network_idle": True, "solve_cloudflare": True, "timeout": 30000},
-        {"headless": True, "disable_resources": False, "block_ads": False, "network_idle": True, "solve_cloudflare": True, "timeout": 45000},
-        {"headless": False, "disable_resources": True, "block_ads": True, "network_idle": False, "solve_cloudflare": True, "timeout": 60000},
-    ]
-
+    stealth = StealthSession(proxy_url=proxy_url)
+    max_retries = 5
     last_error = None
-    for attempt, flags in enumerate(flag_sets):
+
+    for attempt in range(max_retries):
         try:
-            fetch_args = {"url": "https://aternos.org/servers/", **flags}
-            if proxy_url:
-                fetch_args["proxy"] = proxy_url
+            fp = stealth.fingerprint
+            page_action = build_stealth_page_action(
+                login_func=_fill_login_form,
+                username=username,
+                password=password,
+            )
 
-            def fill_and_submit(page):
-                for sel in LOGIN_SELECTORS_USER:
-                    try:
-                        page.fill(sel, username)
-                        break
-                    except Exception:
-                        continue
-                for sel in LOGIN_SELECTORS_PASS:
-                    try:
-                        page.fill(sel, password)
-                        break
-                    except Exception:
-                        continue
-                for sel in LOGIN_SELECTORS_SUBMIT:
-                    try:
-                        page.click(sel)
-                        break
-                    except Exception:
-                        continue
+            fetch_args = stealth.get_stealthy_fetch_args(
+                url="https://aternos.org/servers/",
+                page_action=page_action,
+                wait=random.randint(3000, 6000),
+            )
 
-            fetch_args["page_action"] = fill_and_submit
-            print(f"StealthyFetcher login attempt {attempt + 1}/{len(flag_sets)}...")
+            print(f"Stealth login attempt {attempt + 1}/{max_retries} (fingerprint: {fp['browser']}/{fp['os']})...")
             resp = StealthyFetcher.fetch(**fetch_args)
+
+            page_url = resp.url if hasattr(resp, "url") else ""
+            page_text = resp.text if hasattr(resp, "text") else ""
+
+            if is_cloudflare_challenge(page_url, page_text):
+                print(f"Attempt {attempt + 1}: Cloudflare challenge still active after wait. Retrying...")
+                human_delay(5000, 10000)
+                last_error = "Cloudflare challenge not solved"
+                continue
 
             cookies = {}
             if hasattr(resp, "cookies") and resp.cookies:
                 for c in resp.cookies:
                     cookies[c.name] = c.value
 
+            if not cookies:
+                try:
+                    cookie_header = resp.headers.get("set-cookie", "") if hasattr(resp, "headers") else ""
+                    if cookie_header:
+                        for part in cookie_header.split(","):
+                            if "=" in part:
+                                name, value = part.split("=", 1)
+                                cookies[name.strip()] = value.split(";")[0].strip()
+                except Exception:
+                    pass
+
             session_token = cookies.get("ATERNOS_SESSION")
             if session_token:
                 safe_write_json(state_file, {"ATERNOS_SESSION": session_token})
-                print("Session token saved.")
+                stealth.save_session_cookies(cookies)
+                print(f"Login successful on attempt {attempt + 1}. Session token saved.")
                 return cookies, session_token
             else:
-                print(f"Attempt {attempt + 1}: no ATERNOS_SESSION cookie.")
-                last_error = "No session cookie after login"
+                print(f"Attempt {attempt + 1}: no ATERNOS_SESSION cookie. Page URL: {page_url}")
+                last_error = f"No session cookie after login (URL: {page_url})"
+
+                if is_login_page(page_url, page_text):
+                    print("Still on login page. Cloudflare may have blocked the attempt.")
+                    last_error = "Blocked by Cloudflare or invalid credentials"
 
         except Exception as e:
             last_error = str(e)
             print(f"Login attempt {attempt + 1} failed: {e}")
-            time.sleep(2)
+            traceback.print_exc()
 
-    raise Exception(f"All login attempts failed. Last error: {last_error}")
+        backoff = min(30, (2 ** attempt) * 2 + random.uniform(0, 3))
+        print(f"Backing off {backoff:.1f}s before next attempt...")
+        time.sleep(backoff)
+
+        if attempt < max_retries - 1:
+            clear_cookies()
+            stealth = StealthSession(proxy_url=proxy_url)
+
+    raise Exception(f"All {max_retries} login attempts failed. Last error: {last_error}")
 
 
 def validate_session(session_token: str | None, proxy_url: str | None) -> bool:
     if not session_token:
         return False
-    try:
-        with FetcherSession(proxy=proxy_url, verify=True) as session:
-            session._curl_session.cookies.set("ATERNOS_SESSION", session_token, domain=".aternos.org")
-            resp = session.get("https://aternos.org/server/")
-            page_url = resp.url if hasattr(resp, "url") else ""
-            page_text = resp.text if hasattr(resp, "text") else ""
-            if is_login_page(page_url, page_text):
-                print("Session expired.")
-                return False
-            print("Session valid.")
-            return True
-    except Exception as e:
-        print(f"Session check failed: {e}")
-        return False
+
+    for attempt in range(3):
+        try:
+            impersonation = get_random_impersonate()
+            with FetcherSession(
+                proxy=proxy_url,
+                impersonate=impersonation,
+                retries=2,
+                retry_delay=2,
+                verify=True,
+            ) as session:
+                session._curl_session.cookies.set("ATERNOS_SESSION", session_token, domain=".aternos.org")
+                resp = session.get("https://aternos.org/server/")
+                page_url = resp.url if hasattr(resp, "url") else ""
+                page_text = resp.text if hasattr(resp, "text") else ""
+
+                if is_cloudflare_challenge(page_url, page_text):
+                    print(f"Session validation attempt {attempt + 1}: Cloudflare challenge. Retrying...")
+                    time.sleep(random.uniform(2, 5))
+                    continue
+
+                if is_login_page(page_url, page_text):
+                    print("Session expired.")
+                    return False
+
+                print("Session valid.")
+                return True
+        except Exception as e:
+            print(f"Session check attempt {attempt + 1} failed: {e}")
+            time.sleep(random.uniform(1, 3))
+
+    return False
 
 
 def execute_aternos_action(action_type: str, session_token: str | None, all_cookies: dict, proxy_url: str | None) -> int:
-    with FetcherSession(proxy=proxy_url, verify=True) as session:
-        for name, value in all_cookies.items():
-            session._curl_session.cookies.set(name, value, domain=".aternos.org")
-        if session_token:
-            session._curl_session.cookies.set("ATERNOS_SESSION", session_token, domain=".aternos.org")
+    for attempt in range(3):
+        try:
+            impersonation = get_random_impersonate()
+            with FetcherSession(
+                proxy=proxy_url,
+                impersonate=impersonation,
+                retries=2,
+                retry_delay=2,
+                verify=True,
+            ) as session:
+                for name, value in all_cookies.items():
+                    session._curl_session.cookies.set(name, value, domain=".aternos.org")
+                if session_token:
+                    session._curl_session.cookies.set("ATERNOS_SESSION", session_token, domain=".aternos.org")
 
-        page = session.get("https://aternos.org/server/")
-        page_text = page.text if hasattr(page, "text") else ""
+                human_delay(500, 1500)
 
-        if is_login_page(page.url if hasattr(page, "url") else "", page_text):
-            raise Exception("SESSION_EXPIRED: Cookie died between validation and AJAX call.")
+                page = session.get("https://aternos.org/server/")
+                page_text = page.text if hasattr(page, "text") else ""
+                page_url = page.url if hasattr(page, "url") else ""
 
-        ajax_token = extract_ajax_token(page_text)
-        sec_header_val = extract_sec_cookie(dict(session._curl_session.cookies))
+                if is_cloudflare_challenge(page_url, page_text):
+                    print(f"AJAX attempt {attempt + 1}: Cloudflare challenge on server page. Retrying...")
+                    time.sleep(random.uniform(3, 7))
+                    continue
 
-        if not ajax_token:
-            raise Exception("TOKEN_MISSING: Could not extract ajaxToken. Aternos may have changed their JS.")
-        if not sec_header_val:
-            raise Exception("SEC_MISSING: Could not extract SEC cookie. Aternos may have changed cookie names.")
+                if is_login_page(page_url, page_text):
+                    raise Exception("SESSION_EXPIRED: Cookie died between validation and AJAX call.")
 
-        headers = {
-            "X-Requested-With": "XMLHttpRequest",
-            "SEC": sec_header_val,
-            "Referer": "https://aternos.org/server/",
-        }
+                ajax_token = extract_ajax_token(page_text)
+                sec_header_val = extract_sec_cookie(dict(session._curl_session.cookies))
 
-        if action_type == "start":
-            url = f"https://aternos.org/panel/ajax/start.php?headstart=0&access-credits=0&token={ajax_token}"
-        elif action_type == "stop":
-            url = f"https://aternos.org/panel/ajax/stop.php?token={ajax_token}"
-        else:
-            raise Exception(f"Unknown action: {action_type}")
+                if not ajax_token:
+                    for extra_wait in [3, 5, 8]:
+                        print(f"No ajaxToken found, waiting {extra_wait}s for JS execution...")
+                        time.sleep(extra_wait)
+                        page2 = session.get("https://aternos.org/server/")
+                        page_text2 = page2.text if hasattr(page2, "text") else ""
+                        ajax_token = extract_ajax_token(page_text2)
+                        if ajax_token:
+                            page_text = page_text2
+                            break
 
-        res = session.get(url, headers=headers)
-        print(f"{action_type} response: {res.status}")
-        return res.status
+                if not ajax_token:
+                    raise Exception("TOKEN_MISSING: Could not extract ajaxToken after multiple waits.")
+
+                if not sec_header_val:
+                    sec_header_val = extract_sec_cookie(dict(session._curl_session.cookies)) or ""
+
+                headers = {
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Referer": "https://aternos.org/server/",
+                    "Accept": "application/json, text/javascript, */*; q=0.01",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Sec-Fetch-Dest": "empty",
+                    "Sec-Fetch-Mode": "cors",
+                    "Sec-Fetch-Site": "same-origin",
+                }
+                if sec_header_val:
+                    headers["SEC"] = sec_header_val
+
+                human_delay(800, 2000)
+
+                if action_type == "start":
+                    url = f"https://aternos.org/panel/ajax/start.php?headstart=0&access-credits=0&token={ajax_token}"
+                elif action_type == "stop":
+                    url = f"https://aternos.org/panel/ajax/stop.php?token={ajax_token}"
+                else:
+                    raise Exception(f"Unknown action: {action_type}")
+
+                res = session.get(url, headers=headers)
+                print(f"{action_type} response: {res.status}")
+
+                if res.status == 403:
+                    print(f"Got 403 on {action_type} AJAX. Cloudflare may be blocking. Retrying...")
+                    time.sleep(random.uniform(5, 10))
+                    continue
+
+                return res.status
+
+        except Exception as e:
+            if attempt < 2:
+                print(f"Action attempt {attempt + 1} failed: {e}. Retrying...")
+                time.sleep(random.uniform(3, 7))
+                continue
+            raise
+
+    raise Exception(f"All action attempts failed for {action_type}")
 
 
 def execute_aternos_scrapling(
@@ -207,7 +375,7 @@ def execute_aternos_scrapling(
     proxy_url: str | None,
     update_status_sync,
 ) -> None:
-    MAX_RETRIES = 2
+    MAX_RETRIES = 4
     all_cookies = {}
 
     for attempt in range(MAX_RETRIES + 1):
@@ -219,10 +387,18 @@ def execute_aternos_scrapling(
                 session_valid = False
 
             if not session_valid:
-                update_status_sync(f"Logging in to Aternos...\n{make_progress_bar(30)}")
-                all_cookies, new_token = aternos_login(username, password, proxy_url, state_file)
-                if new_token:
-                    session_token = new_token
+                update_status_sync(f"Logging in to Aternos (attempt {attempt + 1})...\n{make_progress_bar(30)}")
+                try:
+                    all_cookies, new_token = aternos_login(username, password, proxy_url, state_file)
+                    if new_token:
+                        session_token = new_token
+                except Exception as login_err:
+                    print(f"Login failed on attempt {attempt + 1}: {login_err}")
+                    if attempt < MAX_RETRIES:
+                        update_status_sync(f"Login blocked, rotating fingerprint...\n{make_progress_bar(25)}")
+                        human_delay(5000, 10000)
+                        continue
+                    raise
             else:
                 state_data = safe_read_json(state_file)
                 if state_data:
@@ -241,14 +417,22 @@ def execute_aternos_scrapling(
                 print(f"Session died mid-flow, retrying... (attempt {attempt + 2})")
                 session_token = None
                 all_cookies = {}
+                human_delay(2000, 5000)
                 continue
+            if "TOKEN_MISSING" in err_msg or "SEC_MISSING" in err_msg:
+                if attempt < MAX_RETRIES:
+                    print(f"Token extraction failed, retrying with fresh session... (attempt {attempt + 2})")
+                    session_token = None
+                    all_cookies = {}
+                    clear_cookies()
+                    human_delay(3000, 7000)
+                    continue
             raise
 
-    raise Exception("All retry attempts exhausted.")
+    raise Exception("All retry attempts exhausted. Cloudflare may be blocking this IP.")
 
 
 async def run_aternos_action(ctx, action_type: str, status_msg, proxy_url: str | None) -> None:
-    import os
     username = os.getenv("ATERNOS_USER")
     password = os.getenv("ATERNOS_PASS")
     session_token = os.getenv("ATERNOS_SESSION")
@@ -258,12 +442,17 @@ async def run_aternos_action(ctx, action_type: str, status_msg, proxy_url: str |
     if state_data:
         session_token = state_data.get("ATERNOS_SESSION") or session_token
 
+    persisted = safe_read_json(COOKIE_PERSIST_PATH.replace(".json", "_cookies.json")) if os.path.exists(COOKIE_PERSIST_PATH.replace(".json", "_cookies.json")) else None
+
     await status_msg.edit(content=f"Processing {action_type} request...")
 
     loop = asyncio.get_running_loop()
 
     def update_status_sync(message):
-        asyncio.run_coroutine_threadsafe(status_msg.edit(content=message), loop)
+        try:
+            asyncio.run_coroutine_threadsafe(status_msg.edit(content=message), loop)
+        except Exception:
+            pass
 
     try:
         await asyncio.to_thread(
@@ -277,14 +466,15 @@ async def run_aternos_action(ctx, action_type: str, status_msg, proxy_url: str |
             update_status_sync,
         )
     except Exception as e:
-        import traceback
         traceback.print_exc()
         err = str(e)
         if "TOKEN_MISSING" in err or "SEC_MISSING" in err:
             await status_msg.edit(content="Aternos changed their page structure. Needs code update.")
         elif "SESSION_EXPIRED" in err:
             await status_msg.edit(content="Session expired and re-login failed. Check credentials.")
+        elif "Cloudflare" in err or "cloudflare" in err:
+            await status_msg.edit(content="Cloudflare is blocking this IP. Try rotating proxies or waiting.")
         elif "login" in err.lower():
             await status_msg.edit(content="Login failed. Check ATERNOS_USER/ATERNOS_PASS.")
         else:
-            await status_msg.edit(content="Automation failed. Check logs.")
+            await status_msg.edit(content=f"Automation failed: {err[:1900]}")

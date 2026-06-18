@@ -1,7 +1,12 @@
 import os
+import random
+from utils.config import PROXY_ROTATION, PROXY_LIST
 
 
 def get_configured_proxy() -> str | None:
+    if PROXY_ROTATION and PROXY_LIST:
+        return random.choice(PROXY_LIST)
+
     proxy_url = os.getenv("PROXY_SERVER")
     if not proxy_url:
         proxy_user = os.getenv("PROXY_USER")
@@ -14,6 +19,12 @@ def get_configured_proxy() -> str | None:
         elif proxy_host and proxy_port:
             proxy_url = f"http://{proxy_host}:{proxy_port}"
     return proxy_url
+
+
+def get_next_proxy() -> str | None:
+    if PROXY_ROTATION and PROXY_LIST:
+        return random.choice(PROXY_LIST)
+    return get_configured_proxy()
 
 
 def sanitize_proxy_url(url: str | None) -> str:

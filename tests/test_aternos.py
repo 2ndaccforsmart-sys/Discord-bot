@@ -2,13 +2,13 @@ from utils.aternos import extract_ajax_token, extract_sec_cookie, is_login_page
 
 
 def test_extract_ajax_token_found():
-    html = 'var ajaxToken = "abc123def456";'
-    assert extract_ajax_token(html) == "abc123def456"
+    html = 'var ajaxToken = "abc123def456ghi789";'
+    assert extract_ajax_token(html) == "abc123def456ghi789"
 
 
 def test_extract_ajax_token_window():
-    html = 'window.ajaxToken = "xyz789";'
-    assert extract_ajax_token(html) == "xyz789"
+    html = 'window.ajaxToken = "xyz789abcdefgh";'
+    assert extract_ajax_token(html) == "xyz789abcdefgh"
 
 
 def test_extract_ajax_token_not_found():
