@@ -18,12 +18,11 @@ _last_bot_response: dict[int, float] = defaultdict(float)
 CONTINUATION_WINDOW = 120
 
 RELEVANCE_KEYWORDS = [
-    "server", "minecraft", "aternos", "online", "offline", "start", "stop",
-    "ip", "join", "player", "lag", "crash", "port", "whitelist", "op",
-    "realm", "mod", "plugin", "seed", "world", "backup", "restart",
+    "minecraft", "aternos", "whitelist", "op me",
+    "realm", "plugin", "seed", "world backup",
 ]
 
-BOT_NAME_ALIASES = ["server_start", "server start", "start", "bot", "botty"]
+BOT_NAME_ALIASES = ["server", "server_start", "serverstart", "bot", "botty"]
 
 
 def init_gemini() -> bool:
@@ -102,13 +101,13 @@ def mark_bot_responded(channel_id: int):
 
 def _is_mentioning_bot(content: str, bot_user: discord.Member) -> bool:
     content_lower = content.lower()
-    content_no_separators = re.sub(r'[\s_\-]', '', content_lower)
-    bot_name = re.sub(r'[\s_\-]', '', bot_user.display_name.lower())
-    if bot_name and len(bot_name) >= 3 and bot_name in content_no_separators:
+    content_clean = re.sub(r'[\s_\-,.!?;:\']', '', content_lower)
+    bot_name = re.sub(r'[\s_\-,.!?;:\']', '', bot_user.display_name.lower())
+    if bot_name and len(bot_name) >= 3 and bot_name in content_clean:
         return True
     for alias in BOT_NAME_ALIASES:
-        alias_clean = re.sub(r'[\s_\-]', '', alias)
-        if alias_clean and alias_clean in content_no_separators:
+        alias_clean = re.sub(r'[\s_\-,.!?;:\']', '', alias)
+        if alias_clean and len(alias_clean) >= 3 and alias_clean in content_clean:
             return True
     return False
 

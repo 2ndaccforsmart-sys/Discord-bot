@@ -47,6 +47,12 @@ def build_bot() -> commands.Bot:
     async def on_ready():
         log.info("Bot logged in as %s", bot.user.name)
         log.info("Serving %d guild(s).", len(bot.guilds))
+        for guild in bot.guilds:
+            try:
+                await guild.me.edit(nick="Server")
+                log.info("Set nickname to 'Server' in %s", guild.name)
+            except discord.Forbidden:
+                log.warning("Missing permission to change nickname in %s", guild.name)
 
     @bot.event
     async def on_message(message: discord.Message):
