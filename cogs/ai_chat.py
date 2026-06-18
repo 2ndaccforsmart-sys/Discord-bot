@@ -1,4 +1,5 @@
 import re
+import logging
 import asyncio
 import discord
 from discord.ext import commands
@@ -6,6 +7,8 @@ from collections import defaultdict
 
 from utils.config import GEMINI_API_KEY, GEMINI_MODEL, GEMINI_HISTORY_LIMIT, GEMINI_BOT_PERSONA, DEFAULT_PERSONA
 from utils.security import sanitize_display_name
+
+log = logging.getLogger("bot.ai_chat")
 
 _chat_history: dict[int, list] = defaultdict(list)
 _gemini_model = None
@@ -20,6 +23,7 @@ RELEVANCE_KEYWORDS = [
 def init_gemini() -> bool:
     global _gemini_model
     if not GEMINI_API_KEY:
+        log.warning("No GEMINI_API_KEY set, AI chat disabled.")
         return False
     try:
         import google.generativeai as genai
@@ -42,10 +46,10 @@ def init_gemini() -> bool:
             safety_settings=safety_settings,
             system_instruction=GEMINI_BOT_PERSONA or DEFAULT_PERSONA,
         )
-        print(f"Gemini AI initialized: {GEMINI_MODEL}")
+        log.info("Gemini AI initialized: %s", GEMINI_MODEL)
         return True
     except Exception as e:
-        print(f"Failed to initialize Gemini: {e}")
+        log.error("Failed to initialize Gemini: %s", e)
         _gemini_model = None
         return False
 
@@ -80,14 +84,17 @@ async def ask_gemini(channel_id: int, user_message: str, author_name: str) -> st
             response_text = response_text[:1900] + "..."
         return response_text
     except Exception as e:
-        print(f"Gemini error: {e}")
+        log.error("Gemini error: %s", e)
         if history and history[-1]["role"] == "user":
             history.pop()
         return None
 
 
 def should_bot_respond(message: discord.Message, bot_user: discord.Member) -> bool:
-    content = message.content.lower().strip()
+    content = message.content
+    if not content:
+        return False
+    content = content.lower().strip()
     if not content:
         return False
     if message.reference and message.reference.resolved:
@@ -121,7 +128,7 @@ class AIChat(commands.Cog):
             await ctx.send("Failed to respond. Try again.")
 
     @commands.command(name="bot")
-    async def bot_alias_command(self, ctx: commands.Context, *, message: str = ""):
+    async def botchat_alias(self, ctx: commands.Context, *, message: str = ""):
         await self.chat_command(ctx, message=message)
 
     @commands.command(name="clear")

@@ -2,8 +2,6 @@ import os
 import json
 import time
 import random
-import asyncio
-from pathlib import Path
 
 ANTI_DETECT_INIT_SCRIPT = """
 // Override webdriver detection
@@ -56,14 +54,6 @@ FINGERPRINTS = [
     {"browser": "firefox", "os": "windows", "locale": "en-US", "timezone": "America/New_York"},
 ]
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
-]
-
 STEALTHY_IMPERSONATES = [
     "chrome131", "chrome136", "chrome142", "chrome145", "chrome146",
     "edge101", "firefox133", "firefox135",
@@ -74,10 +64,6 @@ COOKIE_PERSIST_PATH = "stealth_cookies.json"
 
 def get_random_fingerprint() -> dict:
     return random.choice(FINGERPRINTS)
-
-
-def get_random_user_agent() -> str:
-    return random.choice(USER_AGENTS)
 
 
 def get_random_impersonate() -> str:
@@ -98,8 +84,8 @@ def save_cookies(cookies: dict, filepath: str = COOKIE_PERSIST_PATH):
         existing["_saved_at"] = time.time()
         with open(filepath, "w") as f:
             json.dump(existing, f)
-    except Exception as e:
-        print(f"Cookie save failed: {e}")
+    except Exception:
+        pass
 
 
 def load_cookies(filepath: str = COOKIE_PERSIST_PATH) -> dict:
@@ -110,7 +96,6 @@ def load_cookies(filepath: str = COOKIE_PERSIST_PATH) -> dict:
             data = json.load(f)
         saved_at = data.pop("_saved_at", 0)
         if time.time() - saved_at > 86400 * 3:
-            print("Persisted cookies are >3 days old, discarding.")
             return {}
         return data
     except Exception:
@@ -179,16 +164,12 @@ def build_warmup_action():
     def page_action(page):
         human_delay(2000, 4000)
         try:
-            page.evaluate("""
-                window.scrollTo(0, document.body.scrollHeight / 3);
-            """)
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight / 3);")
         except Exception:
             pass
         human_delay(1000, 2000)
         try:
-            page.evaluate("""
-                window.scrollTo(0, 0);
-            """)
+            page.evaluate("window.scrollTo(0, 0);")
         except Exception:
             pass
         human_delay(500, 1000)

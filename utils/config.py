@@ -1,7 +1,10 @@
 import os
 import re
 import time
+import logging
 from collections import defaultdict
+
+log = logging.getLogger("bot.config")
 
 
 def _safe_int(env_var: str, default: int) -> int:
@@ -11,7 +14,7 @@ def _safe_int(env_var: str, default: int) -> int:
     try:
         return int(raw)
     except (ValueError, TypeError):
-        print(f"Warning: {env_var}='{raw}' is not a valid integer, using default {default}")
+        log.warning("%s='%s' is not a valid integer, using default %d", env_var, raw, default)
         return default
 
 

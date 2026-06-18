@@ -1,6 +1,8 @@
 import os
 import re
+import sys
 import socket
+import logging
 import asyncio
 import traceback
 
@@ -15,13 +17,21 @@ from cogs.ai_chat import init_gemini, ask_gemini, should_bot_respond
 
 load_dotenv(override=True)
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stdout,
+)
+log = logging.getLogger("bot")
+
 proxy_url = get_configured_proxy()
 if proxy_url:
-    print(f"Proxy configured for Scrapling/Aternos automation: {sanitize_proxy_url(proxy_url)}")
+    log.info("Proxy configured for Scrapling/Aternos: %s", sanitize_proxy_url(proxy_url))
 
 
 def build_bot() -> commands.Bot:
-    print("Connecting to Discord gateway directly (no proxy)...")
+    log.info("Connecting to Discord gateway directly (no proxy)...")
     connector = aiohttp.TCPConnector(family=socket.AF_INET)
     bot = commands.Bot(
         command_prefix="!",
@@ -33,12 +43,15 @@ def build_bot() -> commands.Bot:
 
     @bot.event
     async def on_ready():
-        print(f"Bot logged in as {bot.user.name}")
-        print(f"Serving {len(bot.guilds)} guild(s).")
+        log.info("Bot logged in as %s", bot.user.name)
+        log.info("Serving %d guild(s).", len(bot.guilds))
 
     @bot.event
     async def on_message(message: discord.Message):
         if message.author.bot:
+            return
+        if not message.content:
+            await bot.process_commands(message)
             return
         if GEMINI_API_KEY:
             should_respond = False
@@ -84,16 +97,16 @@ async def main():
 
         while not shutdown_event.is_set():
             attempt += 1
-            print(f"Connection attempt #{attempt}...")
+            log.info("Connection attempt #%d...", attempt)
             try:
                 await bot.start(DISCORD_TOKEN)
+                break
             except discord.LoginFailure as e:
-                print(f"FATAL: Discord login failed: {e}")
+                log.critical("Discord login failed: %s", e)
                 raise
             except Exception as e:
-                traceback.print_exc()
-                print(f"Disconnected on attempt #{attempt}: {type(e).__name__}: {e}")
-                print(f"Reconnecting in {retry_delay}s...")
+                log.error("Disconnected on attempt #%d: %s: %s", attempt, type(e).__name__, e)
+                log.info("Reconnecting in %ds...", retry_delay)
                 try:
                     await asyncio.wait_for(shutdown_event.wait(), timeout=retry_delay)
                     break
@@ -101,7 +114,7 @@ async def main():
                     pass
                 retry_delay = min(retry_delay * 2, 60)
 
-        print("Shutting down gracefully...")
+        log.info("Shutting down gracefully...")
         keepalive_cog = bot.get_cog("Keepalive")
         if keepalive_cog:
             keepalive_cog.cancel_ping()
@@ -109,8 +122,8 @@ async def main():
 
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
-        print("Error: DISCORD_TOKEN environment variable is not set!")
+        log.critical("DISCORD_TOKEN environment variable is not set!")
         exit(1)
     if MY_DISCORD_USER_ID == 0:
-        print("Warning: MY_DISCORD_USER_ID not set. Owner commands disabled.")
+        log.warning("MY_DISCORD_USER_ID not set. Owner commands disabled.")
     asyncio.run(main())

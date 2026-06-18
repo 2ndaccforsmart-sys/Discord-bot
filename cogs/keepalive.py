@@ -1,4 +1,6 @@
 import time
+import hmac
+import logging
 import asyncio
 import aiohttp
 from aiohttp import web
@@ -6,13 +8,14 @@ from discord.ext import commands
 
 from utils.config import HEALTH_SECRET, SELF_PING_URL, KEEPALIVE_PORT
 
+log = logging.getLogger("bot.keepalive")
 _start_time = time.time()
 
 
 async def handle_cloud_health_check(request: web.Request) -> web.Response:
     if HEALTH_SECRET:
         token = request.headers.get("X-Health-Token") or request.query.get("token")
-        if not token or not _constant_time_compare(token, HEALTH_SECRET):
+        if not token or not hmac.compare_digest(token.encode(), HEALTH_SECRET.encode()):
             return web.Response(status=403, text="Forbidden")
     return web.Response(text="Online", content_type="text/plain")
 
@@ -25,11 +28,6 @@ async def handle_health(request: web.Request) -> web.Response:
         "uptime_seconds": uptime_secs,
         "bot_connected": bot.is_ready() if bot else False,
     })
-
-
-def _constant_time_compare(val1: str, val2: str) -> bool:
-    import hmac
-    return hmac.compare_digest(val1.encode(), val2.encode())
 
 
 class Keepalive(commands.Cog):
@@ -55,24 +53,24 @@ class Keepalive(commands.Cog):
             await self._runner.setup()
             site = web.TCPSite(self._runner, "0.0.0.0", KEEPALIVE_PORT)
             await site.start()
-            print(f"Keepalive server bound to port {KEEPALIVE_PORT}")
+            log.info("Keepalive server bound to port %d", KEEPALIVE_PORT)
         except OSError as e:
-            print(f"Keepalive server failed to start (port {KEEPALIVE_PORT} may be in use): {e}")
+            log.error("Keepalive server failed to start (port %d may be in use): %s", KEEPALIVE_PORT, e)
         except Exception as e:
-            print(f"Keepalive server error: {e}")
+            log.error("Keepalive server error: %s", e)
 
     async def _self_ping_loop(self):
         if not SELF_PING_URL:
             return
-        print(f"Self-ping loop started: {SELF_PING_URL}")
+        log.info("Self-ping loop started: %s", SELF_PING_URL)
         while True:
             await asyncio.sleep(240)
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(SELF_PING_URL, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                        print(f"Self-ping: {resp.status}")
+                        log.info("Self-ping: %d", resp.status)
             except Exception as e:
-                print(f"Self-ping failed: {e}")
+                log.warning("Self-ping failed: %s", e)
 
     def cancel_ping(self):
         if self._ping_task and not self._ping_task.done():
